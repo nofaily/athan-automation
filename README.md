@@ -4,17 +4,17 @@ Automatically play the Islamic call to prayer (Athan) on your Chromecast devices
 
 ## Features
 
-- 🕌 Automatic Athan playback at all five daily prayer times
-- 🎵 Random selection from multiple Athan audio files
-- 🌙 Special Ramadan support with Iftar announcements (announcement is hard-coded to start earlier than prayer time to allow of anticipatory tune)
-- 📱 Supports multiple Chromecast devices
-- 🔊 Configurable volume levels (separate settings for Fajr and other prayers)
-- 🎨 Displays beautiful Islamic artwork during playback
-- 📋 ID3 metadata support (shows reciter name, title, etc.)
-- 🔄 Hot-reload configuration without restarting
-- 📝 Comprehensive logging with rotation
-- 🔁 Automatic retry and error recovery
-- 📅 Built-in prayer times calculator
+- Automatic Athan playback at all five daily prayer times
+- Random selection from multiple Athan audio files
+- Special Ramadan support with Iftar announcements (announcement is hard-coded to start earlier than prayer time to allow of anticipatory tune)
+- Supports multiple Chromecast devices
+- Configurable volume levels (separate settings for Fajr and other prayers)
+- Displays beautiful Islamic artwork during playback
+- ID3 metadata support (shows reciter name, title, etc.)
+- Hot-reload configuration without restarting
+- Comprehensive logging with rotation
+- Automatic retry and error recovery
+- Built-in prayer times calculator
 
 ## Prerequisites
 
