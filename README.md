@@ -129,8 +129,8 @@ This project follows the Filesystem Hierarchy Standard (FHS):
 /var/lib/athan-automation/      # Application data
 └── prayer_times.csv            # Prayer times schedule
 
-/var/www/html/files/athan/       # Web server files
-└── audio/                      # Audio files and artwork
+/var/www/html/files/            # Web server files
+└── athan/                      # Audio files and artwork
     ├── fajr/                   # Fajr audio files
     ├── prayer/                 # Regular prayer audio files
     ├── iftar/                  # Iftar audio files
