@@ -28,7 +28,7 @@ Automatically play the Islamic call to prayer (Athan) on your Chromecast devices
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/athan-automation.git
+git clone https://github.com/nofaily/athan-automation.git
 cd athan-automation
 ```
 
