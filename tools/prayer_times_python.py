@@ -143,6 +143,7 @@ def main():
     print("\nCalculating prayer times...")
     
     prayer_data = []
+    prayer_data.append(['Prayer Name','Time and Date','Month'])
     current_date = start_date
     
     while current_date <= end_date:

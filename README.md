@@ -87,7 +87,6 @@ Update the following settings:
 The project includes a prayer times calculator. Run it to generate your prayer schedule:
 
 ```bash
-source ~/athan-automation-env/bin/activate
 cd /usr/local/share/athan-automation/tools
 ./prayer_times_shell.sh
 ```
@@ -98,10 +97,11 @@ Follow the prompts to:
 - Choose Asr method (Shafi'i or Hanafi) (if you're unsure, see your Athan app)
 - Specify date range
 
-The script will generate `prayer_times.csv` in the current directory. Move it to the data directory:
+The script will generate `prayer_times.csv` in a temporary directory. Move the file to the correct location, the `prayer_time_shell.sh` output will give you the exact location and commands.
 
 ```bash
-sudo mv prayer_times.csv /var/lib/athan-automation/prayer_times.csv
+sudo mv /tmp/[temp_direcory]/prayer_times.csv /var/lib/athan-automation/prayer_times.csv
+sudo chmod 644 /var/lib/athan-automation/prayer_times.csv
 ```
 
 **Alternative:** You can also generate prayer times from:
@@ -129,7 +129,7 @@ This project follows the Filesystem Hierarchy Standard (FHS):
 /var/lib/athan-automation/      # Application data
 └── prayer_times.csv            # Prayer times schedule
 
-/var/www/html/files/            # Web server files
+/var/www/html/                  # Web server files
 └── athan/                      # Audio files and artwork
     ├── fajr/                   # Fajr audio files
     ├── prayer/                 # Regular prayer audio files
@@ -156,13 +156,13 @@ The `/etc/athan-automation/config.ini` file contains all settings:
 
 ```ini
 [DEFAULT]
-fajr_folder = /var/www/html/files/athan/fajr
-prayer_folder = /var/www/html/files/athan/prayer
-iftar_folder = /var/www/html/files/athan/iftar
+fajr_folder = /var/www/html/athan/fajr
+prayer_folder = /var/www/html/athan/prayer
+iftar_folder = /var/www/html/athan/iftar
 prayer_times_file = /var/lib/athan-automation/prayer_times.csv
-lighttpd_base_url = http://raspberry.pi/athan
-athan_art_url = http://raspberry.pi/athan/Mohamed_Ali_Mosque.jpg
-iftar_art_url = http://raspberry.pi/athan/Iftar.jpg
+lighttpd_base_url = http://raspberry.pi/html/athan
+athan_art_url = http://raspberry.pi/html/athan/Mohamed_Ali_Mosque.jpg
+iftar_art_url = http://raspberry.pi/html/athan/Iftar.jpg
 athan_device = Kitchen Display
 iftar_device = All speakers
 log_file = /var/log/athan-automation/athan.log
@@ -251,8 +251,8 @@ Or check the Google Home app on your phone.
 Create `/etc/lighttpd/conf-available/99-athan.conf`:
 
 ```
-alias.url += ( "/athan" => "/var/www/html/files/athan/" )
-$HTTP["url"] =~ "^/athan/" {
+alias.url += ( "/html/athan" => "/var/www/html/athan/" )
+$HTTP["url"] =~ "^/html/athan/" {
     dir-listing.activate = "disable"
 }
 ```
@@ -268,8 +268,8 @@ sudo systemctl restart lighttpd
 Create `/etc/apache2/conf-available/athan.conf`:
 
 ```apache
-Alias /athan /var/www/html/files/athan/
-<Directory /var/www/html/files/athan/>
+Alias /html/athan /var/www/html/athan/
+<Directory /var/www/html/athan/>
     Options -Indexes
     Require all granted
 </Directory>
@@ -286,8 +286,8 @@ sudo systemctl restart apache2
 Add to `/etc/nginx/sites-available/default`:
 
 ```nginx
-location /athan {
-    alias /var/www/html/files/athan/;
+location /html/athan {
+    alias /var/www/html/athan/;
     autoindex off;
 }
 ```

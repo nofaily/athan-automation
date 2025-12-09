@@ -9,7 +9,6 @@ echo "=== Prayer Times Generator ==="
 echo
 
 # Set virtual environment path
-# Change this path to your Python virtual environment path as needed.
 VENV_PATH="$HOME/athan-automation-env"
 
 # Check if virtual environment exists
@@ -61,23 +60,40 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_SCRIPT="$SCRIPT_DIR/prayer_times_python.py"
 
 if [ ! -f "$PYTHON_SCRIPT" ]; then
-    echo "Error: Python script 'calculate_prayer_times.py' not found in $SCRIPT_DIR"
+    echo "Error: Python script 'prayer_times_python.py' not found in $SCRIPT_DIR"
     echo "Please ensure both scripts are in the same directory."
     exit 1
 fi
 
+# Create a temporary directory for output
+TEMP_DIR=$(mktemp -d)
+cd "$TEMP_DIR"
+
 # Run the Python script
 echo "Starting prayer times calculator..."
+echo "Output will be saved to: $TEMP_DIR/prayer_times.csv"
 echo
-python3 "$PYTHON_SCRIPT"
+"$PYTHON" "$PYTHON_SCRIPT"
 
 # Check if the CSV was created successfully
 if [ -f "prayer_times.csv" ]; then
     echo
-    echo "✓ Success! Prayer times have been saved to 'prayer_times.csv'"
-    echo "Total lines: $(wc -l < prayer_times.csv)"
+    echo "✓ Success! Prayer times have been saved to temporary location"
+    echo "  File: $TEMP_DIR/prayer_times.csv"
+    echo "  Total lines: $(wc -l < prayer_times.csv)"
+    echo
+    echo "To install the prayer times file, run:"
+    echo "  sudo mv $TEMP_DIR/prayer_times.csv /var/lib/athan-automation/prayer_times.csv"
+    echo "  sudo chmod 644 /var/lib/athan-automation/prayer_times.csv"
+    echo
+    echo "Or to view it first:"
+    echo "  cat $TEMP_DIR/prayer_times.csv | head -20"
+    echo
+    echo "Note: The file will be deleted when you reboot unless you move it."
 else
     echo
     echo "✗ Error: prayer_times.csv was not created."
+    cd ~
+    rm -rf "$TEMP_DIR"
     exit 1
 fi

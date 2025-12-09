@@ -28,13 +28,13 @@ def load_config():
     section = cp['DEFAULT']
 
     settings = {
-        'FAJR_FOLDER': section.get('FAJR_FOLDER', '/var/www/html/files/athan/fajr'),
-        'PRAYER_FOLDER': section.get('PRAYER_FOLDER', '/var/www/html/files/athan/prayer'),
-        'IFTAR_FOLDER': section.get('IFTAR_FOLDER', '/var/www/html/files/athan/iftar'),
+        'FAJR_FOLDER': section.get('FAJR_FOLDER', '/var/www/html/athan/fajr'),
+        'PRAYER_FOLDER': section.get('PRAYER_FOLDER', '/var/www/html/athan/prayer'),
+        'IFTAR_FOLDER': section.get('IFTAR_FOLDER', '/var/www/html/athan/iftar'),
         'PRAYER_TIMES_FILE': os.path.expanduser(section.get('PRAYER_TIMES_FILE')),
-        'LIGHTTPD_BASE_URL': section.get('LIGHTTPD_BASE_URL', "http://192.168.86.30/files/athan"),
-        'ATHAN_ART_URL': section.get('ATHAN_ART_URL', "http://192.168.86.30/files/athan/Mohamed_Ali_Mosque.jpg"),
-        'IFTAR_ART_URL': section.get('IFTAR_ART_URL', "http://192.168.86.30/files/athan/Iftar.jpg"),
+        'LIGHTTPD_BASE_URL': section.get('LIGHTTPD_BASE_URL', "http://192.168.86.30/html/athan"),
+        'ATHAN_ART_URL': section.get('ATHAN_ART_URL', "http://192.168.86.30/html/athan/Mohamed_Ali_Mosque.jpg"),
+        'IFTAR_ART_URL': section.get('IFTAR_ART_URL', "http://192.168.86.30/html/athan/Iftar.jpg"),
         'ATHAN_DEVICE': section.get('ATHAN_DEVICE'),
         'IFTAR_DEVICE': section.get('IFTAR_DEVICE', 'All speakers'),
         'LOG_FILE': os.path.expanduser(section.get('LOG_FILE')),
@@ -168,7 +168,7 @@ def cast_announcement_and_athan(audio_url, device_name, prayer_name):
     try:
         
         # Extract metadata from the MP3 file
-        local_audio_path = audio_url.replace(current_config['LIGHTTPD_BASE_URL'], "/var/www/html/files/athan")  # Convert URL to local path
+        local_audio_path = audio_url.replace(current_config['LIGHTTPD_BASE_URL'], "/var/www/html/athan")  # Convert URL to local path
         metadata = get_id3_metadata(local_audio_path)
         
         if "iftar" in audio_url:

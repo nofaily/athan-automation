@@ -45,7 +45,7 @@ echo ""
 echo -e "${BLUE}This setup follows Linux Filesystem Hierarchy Standard (FHS):${NC}"
 echo "  • /etc/athan-automation/          - Configuration"
 echo "  • /var/lib/athan-automation/      - Application data"
-echo "  • /var/local/athan/audio/         - Audio files"
+echo "  • /var/www/html/athan/            - Audio files"
 echo "  • /var/log/athan-automation/      - Log files"
 echo "  • /usr/local/bin/                 - Executables"
 echo "  • /usr/local/share/athan-automation/ - Tools and resources"
@@ -68,12 +68,12 @@ echo "Creating directory structure..."
 echo "Creating system directories (requires sudo)..."
 sudo mkdir -p /etc/athan-automation
 sudo mkdir -p /var/lib/athan-automation
-sudo mkdir -p /var/local/athan/audio/{fajr,prayer,iftar}
+sudo mkdir -p /var/www/html/athan/{fajr,prayer,iftar}
 sudo mkdir -p /var/log/athan-automation
 sudo mkdir -p /usr/local/share/athan-automation/tools
 
 # Set ownership to current user
-sudo chown -R $USER:$USER /var/local/athan
+sudo chown -R $USER:$USER /var/www/files/athan
 sudo chown $USER:$USER /var/log/athan-automation
 sudo chown $USER:$USER /var/lib/athan-automation
 
@@ -195,8 +195,8 @@ if [ ! -z "$WEB_SERVER" ]; then
         case $WEB_SERVER in
             lighttpd)
                 sudo tee /etc/lighttpd/conf-available/99-athan.conf > /dev/null <<EOF
-alias.url += ( "/athan" => "/var/www/html/files/athan" )
-\$HTTP["url"] =~ "^/athan/" {
+alias.url += ( "/html/athan" => "/var/www/html/athan" )
+\$HTTP["url"] =~ "^/html/athan/" {
     dir-listing.activate = "disable"
 }
 EOF
@@ -206,8 +206,8 @@ EOF
                 ;;
             apache2)
                 sudo tee /etc/apache2/conf-available/athan.conf > /dev/null <<EOF
-Alias /athan /var/www/html/files/athan
-<Directory /var/www/html/files/athan>
+Alias /html/athan /var/www/html/athan
+<Directory /var/www/html/athan>
     Options -Indexes
     Require all granted
 </Directory>
@@ -296,19 +296,19 @@ echo -e "${GREEN}Installation Summary:${NC}"
 echo "  ✓ Configuration: /etc/athan-automation/config.ini"
 echo "  ✓ Main script: /usr/local/bin/athan-automation"
 echo "  ✓ Data directory: /var/lib/athan-automation/"
-echo "  ✓ Audio directory: /var/www/html/files/athan"
+echo "  ✓ Audio directory: /var/www/html/athan"
 echo "  ✓ Log directory: /var/log/athan-automation/"
 echo "  ✓ Prayer times tools: /usr/local/share/athan-automation/tools/"
 echo ""
 echo -e "${BLUE}Next steps:${NC}"
 echo "1. Add your Athan MP3 files: Fajr, regular prayer and iftar files"
-echo "   cp your-files/*.mp3 /var/www/html/files/athan/fajr/"
-echo "   cp your-files/*.mp3 /var/www/html/files/athan/prayer/"
-echo "   cp your-files/*.mp3 /var/www/html/files/athan/iftar/"
+echo "   cp your-files/*.mp3 /var/www/html/athan/fajr/"
+echo "   cp your-files/*.mp3 /var/www/html/athan/prayer/"
+echo "   cp your-files/*.mp3 /var/www/html/athan/iftar/"
 echo ""
 echo "2. Add artwork images (optional):"
-echo "   cp mosque.jpg /var/www/html/files/athan/Mohamed_Ali_Mosque.jpg"
-echo "   cp iftar.jpg /var/www/html/files/athan/Iftar.jpg"
+echo "   cp mosque.jpg /var/www/html/athan/Mohamed_Ali_Mosque.jpg"
+echo "   cp iftar.jpg /var/www/html/athan/Iftar.jpg"
 echo ""
 echo "3. Edit configuration:"
 echo "   nano /etc/athan-automation/config.ini"

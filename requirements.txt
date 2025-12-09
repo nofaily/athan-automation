@@ -1,5 +1,5 @@
 pychromecast>=13.0.0
-pandas>=2.2.0
+pandas>=2.0.3
 zeroconf>=0.131.0
 mutagen>=1.47.0
 praytimes>=2.3.2
