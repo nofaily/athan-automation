@@ -56,9 +56,9 @@ The setup script will:
 ### 4. Add Your Audio Files
 
 Place your Athan MP3 files in the appropriate directories:
-- `/var/www/html/files/athan/fajr/` - Fajr Athan files
-- `/var/www/html/files/athan/prayer/` - Regular prayer Athan files
-- `/var/www/html/files/athan/iftar/` - Ramadan Iftar announcement files
+- `/var/www/html/athan/fajr/` - Fajr Athan files
+- `/var/www/html/athan/prayer/` - Regular prayer Athan files
+- `/var/www/html/athan/iftar/` - Ramadan Iftar announcement files
 
 **Note:** Make sure your MP3 files have proper ID3 tags (title, artist, album) for best display on Chromecast devices.
 
