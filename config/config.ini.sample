@@ -12,8 +12,8 @@ prayer_times_file = /var/lib/athan-automation/prayer_times.csv
 lighttpd_base_url = http://raspberry.pi/html/athan
 
 # Artwork URLs
-athan_art_url = http://raspberry.pi/files/html/Mohamed_Ali_Mosque.jpg
-iftar_art_url = http://raspberry.pi/files/html/Iftar.jpg
+athan_art_url = http://raspberry.pi/html/athan/Mohamed_Ali_Mosque.jpg
+iftar_art_url = http://raspberry.pi/html/athan/Iftar.jpg
 
 # Chromecast device names (check Google Home app for exact names)
 athan_device = Main floor
