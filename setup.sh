@@ -73,7 +73,7 @@ sudo mkdir -p /var/log/athan-automation
 sudo mkdir -p /usr/local/share/athan-automation/tools
 
 # Set ownership to current user
-sudo chown -R $USER:$USER /var/www/files/athan
+sudo chown -R $USER:$USER /var/www/html/athan
 sudo chown $USER:$USER /var/log/athan-automation
 sudo chown $USER:$USER /var/lib/athan-automation
 
