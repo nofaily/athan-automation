@@ -70,7 +70,7 @@ nano /etc/athan-automation/config.ini
 ```
 
 Update the following settings:
-- `lighttpd_base_url` - Your server's IP address (doesn't have to be lighttpd, any webserver would work fine)
+- `lighttpd_base_url` - Your server's IP address or url (doesn't have to be lighttpd, any webserver would work fine as long as it can serve files from `/var/www/html/athan`)
 - `athan_device` - Name of your Chromecast device
 - `iftar_device` - Device for Ramadan announcements
 - Volume levels as preferred
@@ -307,7 +307,7 @@ sudo systemctl restart nginx
 
 ### Configuration Changes Not Taking Effect
 
-The script hot-reloads configuration automatically, but you can restart:
+The script hot-reloads configuration automatically for volume and speaker names only. For other configuration changes, you can restart:
 ```bash
 sudo systemctl restart athan-automation.service
 ```
@@ -321,7 +321,7 @@ sudo systemctl restart athan-automation.service
 ## Ramadan Mode
 
 During Ramadan, the script automatically:
-- Plays Iftar announcement 2.5 minutes before Maghrib (hard coded, you'll need to manually change that value if you use a different iftar file)
+- Plays Iftar announcement 2.5 minutes before Maghrib (hard coded, you'll need to manually change that value if you use a different iftar audio file)
 - Uses the `iftar_device` (can broadcast to speaker groups as well as individual speakers)
 - Displays Iftar artwork
 - Selects audio from the iftar folder
