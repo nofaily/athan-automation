@@ -32,14 +32,7 @@ git clone https://github.com/nofaily/athan-automation.git
 cd athan-automation
 ```
 
-### 2. Install System Dependencies
-
-```bash
-sudo apt-get update
-sudo apt-get install -y python3-pip python3-venv avahi-daemon
-```
-
-### 3. Run the Setup Script
+### 2. Run the Setup Script
 
 ```bash
 chmod +x setup.sh
@@ -53,7 +46,7 @@ The setup script will:
 - Create configuration file
 - Set up systemd service
 
-### 4. Add Your Audio Files
+### 3. Add Your Audio Files
 
 Place your Athan MP3 files in the appropriate directories:
 - `/var/www/html/athan/fajr/` - Fajr Athan files
@@ -62,13 +55,13 @@ Place your Athan MP3 files in the appropriate directories:
 
 **Note:** Make sure your MP3 files have proper ID3 tags (title, artist, album) for best display on Chromecast devices.
 
-### 5. Add Artwork (Optional)
+### 4. Add Artwork (Optional)
 
 Place artwork images in `/var/www/html/files/athan/`:
 - `Mohamed_Ali_Mosque.jpg` - Displayed during regular prayers
 - `Iftar.jpg` - Displayed during Ramadan Iftar
 
-### 6. Configure Your Settings
+### 5. Configure Your Settings
 
 Edit the configuration file:
 
@@ -82,9 +75,9 @@ Update the following settings:
 - `iftar_device` - Device for Ramadan announcements
 - Volume levels as preferred
 
-### 7. Generate Prayer Times
+### 6. Generate Prayer Times
 
-The project includes a prayer times calculator. Run it to generate your prayer schedule:
+The project includes a prayer times calculator that will automatically run during setup. You can rerun it to generate your prayer schedule as needed:
 
 ```bash
 cd /usr/local/share/athan-automation/tools
@@ -97,18 +90,13 @@ Follow the prompts to:
 - Choose Asr method (Shafi'i or Hanafi) (if you're unsure, see your Athan app)
 - Specify date range
 
-The script will generate `prayer_times.csv` in a temporary directory. Move the file to the correct location, the `prayer_time_shell.sh` output will give you the exact location and commands.
-
-```bash
-sudo mv /tmp/[temp_direcory]/prayer_times.csv /var/lib/athan-automation/prayer_times.csv
-sudo chmod 644 /var/lib/athan-automation/prayer_times.csv
-```
+The script will generate `prayer_times.csv` in a temporary directory and move the file to the correct location at `/var/lib/athan-automation/prayer_times.csv`
 
 **Alternative:** You can also generate prayer times from:
 - [IslamicFinder.org](https://www.islamicfinder.org/)
 - [Adhan API](https://aladhan.com/prayer-times-api)
 
-### 8. Enable and Start the Service
+### 7. Enable and Start the Service
 
 ```bash
 sudo systemctl enable athan-automation.service
@@ -227,7 +215,6 @@ When you need to update prayer times (e.g., new year, different location):
 source ~/athan-automation-env/bin/activate
 cd /usr/local/share/athan-automation/tools
 ./prayer_times_shell.sh
-sudo mv prayer_times.csv /var/lib/athan-automation/prayer_times.csv
 sudo systemctl restart athan-automation.service
 ```
 
@@ -267,8 +254,8 @@ sudo systemctl restart lighttpd
 
 Create `/etc/apache2/conf-available/athan.conf`:
 
-```apache
-Alias /html/athan /var/www/html/athan/
+```apache2
+Alias /html/athan/ /var/www/html/athan/
 <Directory /var/www/html/athan/>
     Options -Indexes
     Require all granted
