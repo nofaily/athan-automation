@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# Athan Automation Setup Script
-# This script helps set up the athan automation system following Linux FHS conventions
-# REVISED: Implements robust VENV creation and the correct Nginx configuration.
+# Athan Automation Setup Script (Adaptive)
+# This script automatically detects the Linux distribution (Debian/Ubuntu or Fedora/RHEL)
+# and adjusts installation commands and configurations accordingly.
 
 set -e
 
 echo "================================"
-echo "Athan Automation Setup (Automated)"
+echo "Athan Automation Setup (Adaptive)"
 echo "================================"
 echo ""
 
@@ -18,23 +18,64 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# --- Distribution Detection & Variable Setup ---
+
 # Check if running on Linux
 if [[ "$OSTYPE" != "linux-gnu"* ]]; then
     echo -e "${RED}Error: This script is designed for Linux systems.${NC}"
     exit 1
 fi
 
-# Check if running with sufficient privileges for system directories
+# Detect OS
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS_ID=$ID
+else
+    echo -e "${RED}Error: Cannot determine Linux distribution (/etc/os-release not found). Aborting.${NC}"
+    exit 1
+fi
+
+echo -e "${BLUE}Detected OS: $OS_ID${NC}"
+
+# Define key variables based on the detected OS
+case "$OS_ID" in
+    debian|ubuntu)
+        PKG_MANAGER="apt-get"
+        UPDATE_CMD="update"
+        CORE_PKGS="python3-pip python3-venv avahi-daemon"
+        WEB_SERVER_PKGS="nginx"
+        APACHE_SERVICE="apache2"
+        NGINX_CONF_AVAILABLE="/etc/nginx/sites-available/athan-automation.conf"
+        NGINX_CONF_ENABLED="/etc/nginx/sites-enabled/athan-automation.conf"
+        NGINX_DEFAULT_CONF="/etc/nginx/sites-enabled/default"
+        AVAHI_SERVICE="avahi-daemon"
+        ;;
+    fedora|centos|rhel)
+        PKG_MANAGER="dnf"
+        UPDATE_CMD="check-update" # Use check-update for faster initial DNF check
+        CORE_PKGS="python3-pip avahi avahi-tools"
+        WEB_SERVER_PKGS="nginx"
+        APACHE_SERVICE="httpd"
+        NGINX_CONF_AVAILABLE="/etc/nginx/conf.d/athan-automation.conf"
+        NGINX_CONF_ENABLED="/etc/nginx/conf.d/athan-automation.conf" # Same file for DNF systems
+        NGINX_DEFAULT_CONF="" # Not typically used/needed for DNF-based Nginx setup
+        AVAHI_SERVICE="avahi-daemon.service"
+        ;;
+    *)
+        echo -e "${RED}Error: Unsupported distribution: $OS_ID. Only Debian/Ubuntu and Fedora/RHEL derivatives are supported.${NC}"
+        exit 1
+        ;;
+esac
+
+echo -e "${GREEN}Using package manager: $PKG_MANAGER${NC}"
+echo ""
+
+# Check if running with sufficient privileges
 if [ "$EUID" -eq 0 ]; then 
     echo -e "${RED}Error: Running as root. This script should be run as a regular user.${NC}"
     echo "The script will prompt for sudo when needed."
     exit 1
 fi
-
-echo ""
-echo -e "${BLUE}This setup is fully automated.${NC}"
-echo "Installation will proceed automatically."
-echo ""
 
 read -p "Continue with installation? (y/n) " -n 1 -r
 echo
@@ -43,12 +84,12 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     exit 0
 fi
 
-# --- Helper Functions ---
+# --- Helper Functions (Use defined variables) ---
 
 # Function to install Nginx
 install_webserver() {
-    echo -e "${YELLOW}No web server detected. Installing Nginx...${NC}"
-    sudo apt-get install -y nginx
+    echo -e "${YELLOW}No web server detected. Installing Nginx using $PKG_MANAGER...${NC}"
+    sudo $PKG_MANAGER install -y $WEB_SERVER_PKGS
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✓ Nginx installed successfully.${NC}"
         WEB_SERVER="nginx"
@@ -61,44 +102,27 @@ install_webserver() {
 # Function to configure a detected or installed web server
 configure_webserver() {
     local WEB_SERVER_CONFIGURED=1
-    case $1 in
-        lighttpd)
-            echo "Configuring lighttpd..."
-            sudo tee /etc/lighttpd/conf-available/99-athan.conf > /dev/null <<EOF
-alias.url += ( "/html/athan" => "/var/www/html/athan" )
-\$HTTP["url"] =~ "^/html/athan/" {
-    dir-listing.activate = "disable"
-}
-EOF
-            sudo ln -sf /etc/lighttpd/conf-available/99-athan.conf /etc/lighttpd/conf-enabled/
-            sudo systemctl reload lighttpd || echo -e "${YELLOW}Warning: Failed to reload lighttpd. Please check manually.${NC}"
-            echo -e "${GREEN}✓ Configured lighttpd${NC}"
-            WEB_SERVER_CONFIGURED=0
-            ;;
-        apache2)
-            echo "Configuring apache2..."
-            sudo tee /etc/apache2/conf-available/athan.conf > /dev/null <<EOF
-Alias /html/athan /var/www/html/athan
-<Directory /var/www/html/athan>
-    Options -Indexes
-    Require all granted
-</Directory>
-EOF
-            sudo a2enconf athan || echo -e "${YELLOW}Warning: Failed to enable apache2 configuration.${NC}"
-            sudo systemctl reload apache2 || echo -e "${YELLOW}Warning: Failed to reload apache2. Please check manually.${NC}"
-            echo -e "${GREEN}✓ Configured apache2${NC}"
-            WEB_SERVER_CONFIGURED=0
-            ;;
-        nginx)
-            echo "Configuring nginx (Dedicated Site File)..."
+    local SERVER_NAME=$1
+    echo "Configuring $SERVER_NAME..."
+
+    case $SERVER_NAME in
+nginx)
+            # Nginx Configuration (Adaptive Path)
             
-            # Define file paths
-            NGINX_SITE_AVAILABLE="/etc/nginx/sites-available/athan-automation.conf"
-            NGINX_SITE_ENABLED="/etc/nginx/sites-enabled/athan-automation.conf"
+            # --- Check and Disable Default Config (Fedora/RHEL Specific) ---
+            if [ "$OS_ID" == "fedora" ] || [ "$OS_ID" == "centos" ] || [ "$OS_ID" == "rhel" ]; then
+                DEFAULT_CONF_FEDORA="/etc/nginx/conf.d/welcome.conf"
+                if [ -f "$DEFAULT_CONF_FEDORA" ]; then
+                    echo -e "${YELLOW}Disabling default Nginx welcome page: $DEFAULT_CONF_FEDORA...${NC}"
+                    # Rename the file to .disabled to prevent Nginx from loading it
+                    sudo mv "$DEFAULT_CONF_FEDORA" "$DEFAULT_CONF_FEDORA.disabled"
+                fi
+            fi
+
+            # --- Create Athan Automation Config (Path is Adaptive) ---
             
             # The Athan Automation server block configuration
-            # This creates a dedicated site config using the correct FHS structure.
-            sudo tee "$NGINX_SITE_AVAILABLE" > /dev/null <<EOF
+            sudo tee "$NGINX_CONF_AVAILABLE" > /dev/null <<EOF
 server {
     listen 80;
     listen [::]:80;
@@ -120,35 +144,57 @@ server {
 EOF
 
             if [ $? -eq 0 ]; then
-                echo -e "${GREEN}✓ Created dedicated Nginx configuration file: $NGINX_SITE_AVAILABLE${NC}"
+                echo -e "${GREEN}✓ Created Nginx configuration file: $NGINX_CONF_AVAILABLE${NC}"
             else
                 echo -e "${RED}Error: Failed to create Nginx configuration file.${NC}"
-                WEB_SERVER_CONFIGURED=1
-                return
+                return 1
             fi
             
-            # Disable the default site to ensure our new site handles port 80 correctly
-            if [ -f /etc/nginx/sites-enabled/default ]; then
-                echo -e "${YELLOW}Disabling default Nginx site to prevent port conflict...${NC}"
-                sudo rm /etc/nginx/sites-enabled/default
+            # --- Adaptive logic for enabling the site (Debian/Ubuntu only) ---
+            if [ "$NGINX_CONF_AVAILABLE" != "$NGINX_CONF_ENABLED" ]; then
+                # Debian/Ubuntu: sites-available/sites-enabled logic
+                
+                # Disable the default site
+                if [ -f "$NGINX_DEFAULT_CONF" ]; then
+                    echo -e "${YELLOW}Disabling default Nginx site to prevent port conflict...${NC}"
+                    sudo rm "$NGINX_DEFAULT_CONF"
+                fi
+                
+                # Create the symlink to enable the new site
+                if [ ! -L "$NGINX_CONF_ENABLED" ]; then
+                    sudo ln -s "$NGINX_CONF_AVAILABLE" "$NGINX_CONF_ENABLED"
+                    echo -e "${GREEN}✓ Enabled athan-automation site via symlink.${NC}"
+                fi
             fi
 
-            # Create the symlink to enable the new site
-            if [ ! -L "$NGINX_SITE_ENABLED" ]; then
-                sudo ln -s "$NGINX_SITE_AVAILABLE" "$NGINX_SITE_ENABLED"
-                echo -e "${GREEN}✓ Enabled athan-automation site.${NC}"
-            fi
-
+            # --- Test and Start/Reload Service ---
             echo "Testing Nginx configuration..."
-            if sudo nginx -t; then # Outputs test results directly
+            if sudo nginx -t; then
                 echo -e "${GREEN}✓ Nginx configuration test successful.${NC}"
-                sudo systemctl reload nginx
-                echo -e "${GREEN}✓ Reloaded nginx service.${NC}"
+
+                if systemctl is-active --quiet nginx; then
+                    sudo systemctl reload nginx
+                    echo -e "${GREEN}✓ Reloaded nginx service.${NC}"
+                else
+                    sudo systemctl start nginx
+                    echo -e "${GREEN}✓ Started nginx service.${NC}"
+                fi
+
                 WEB_SERVER_CONFIGURED=0
             else
-                echo -e "${RED}Error: Nginx configuration failed test. Check $NGINX_SITE_AVAILABLE manually.${NC}"
+                echo -e "${RED}Error: Nginx configuration failed test. Check $NGINX_CONF_AVAILABLE manually.${NC}"
                 WEB_SERVER_CONFIGURED=1
             fi
+            ;;
+            
+        lighttpd|apache2|httpd)
+            echo -e "${YELLOW}Warning: Full adaptive configuration for $SERVER_NAME is complex and skipped.${NC}"
+            echo -e "${YELLOW}Please configure the '/html/athan' alias manually to point to '/var/www/html/athan'.${NC}"
+            WEB_SERVER_CONFIGURED=1
+            ;;
+        *)
+            echo -e "${RED}Error: Cannot configure unknown web server $SERVER_NAME.${NC}"
+            WEB_SERVER_CONFIGURED=1
             ;;
     esac
     return $WEB_SERVER_CONFIGURED
@@ -159,8 +205,9 @@ EOF
 # 1. Initial System Dependency Installation
 echo ""
 echo "Installing core system dependencies (requires sudo)..."
-sudo apt-get update
-sudo apt-get install -y python3-pip python3-venv avahi-daemon
+sudo $PKG_MANAGER $UPDATE_CMD
+sudo $PKG_MANAGER install -y $CORE_PKGS
+
 if ! command -v python3 &> /dev/null; then
     echo -e "${RED}Error: Python 3 failed to install. Cannot continue.${NC}"
     exit 1
@@ -170,47 +217,43 @@ echo -e "${GREEN}✓ Found Python $PYTHON_VERSION${NC}"
 echo -e "${GREEN}✓ Core dependencies installed.${NC}"
 echo ""
 
-# 2. Create directory structure
+# 2. Create directory structure (Paths are FHS standard and non-adaptive)
 echo "Creating directory structure..."
-echo "Creating system directories (requires sudo)..."
 sudo mkdir -p /etc/athan-automation
 sudo mkdir -p /var/lib/athan-automation
 sudo mkdir -p /var/www/html/athan/{fajr,prayer,iftar}
 sudo mkdir -p /var/log/athan-automation
+sudo mkdir -p /usr/local/share/athan-automation
 sudo mkdir -p /usr/local/share/athan-automation/tools
 
 # Set ownership to current user
 sudo chown -R $USER:$USER /var/www/html/athan
 sudo chown -R $USER:$USER /var/log/athan-automation
 sudo chown -R $USER:$USER /var/lib/athan-automation
+sudo chown -R $USER:$USER /usr/local/share/athan-automation
 
 echo -e "${GREEN}✓ Created system directories${NC}"
 
-# 3. Create virtual environment (ROBUST CHECK)
+# 3. Create virtual environment
 echo ""
 echo "Creating Python virtual environment..."
-VENV_PATH="$HOME/athan-automation-env"
-ACTIVATE_SCRIPT="$VENV_PATH/bin/activate" # The essential file to check
+VENV_PATH="/usr/local/share/athan-automation/venv"
+ACTIVATE_SCRIPT="$VENV_PATH/bin/activate"
 
-# Check if the virtual environment exists AND is complete
 if [ -d "$VENV_PATH" ] && [ -f "$ACTIVATE_SCRIPT" ]; then
     echo -e "${YELLOW}⚠ Virtual environment already exists and is complete at $VENV_PATH${NC}"
 else
-    # If the directory exists but is incomplete, or doesn't exist, we must create it
     if [ -d "$VENV_PATH" ]; then
         echo -e "${YELLOW}⚠ Found incomplete virtual environment. Removing and recreating...${NC}"
         rm -rf "$VENV_PATH"
     fi
 
-    # Attempt creation
     python3 -m venv "$VENV_PATH"
     
-    # Check if creation succeeded and the essential 'activate' script exists
     if [ $? -eq 0 ] && [ -f "$ACTIVATE_SCRIPT" ]; then
         echo -e "${GREEN}✓ Created virtual environment at $VENV_PATH${NC}"
     else
-        echo -e "${RED}Error: Failed to create Python virtual environment or the 'activate' script is missing.${NC}"
-        echo -e "${RED}Check Python installation and disk space/permissions.${NC}"
+        echo -e "${RED}Error: Failed to create Python virtual environment.${NC}"
         exit 1
     fi
 fi
@@ -220,7 +263,7 @@ echo ""
 echo "Installing Python dependencies..."
 source "$ACTIVATE_SCRIPT"
 pip install --upgrade pip > /dev/null 2>&1
-# Assuming requirements.txt is in the current directory
+
 if [ -f requirements.txt ]; then
     pip install -r requirements.txt
     echo -e "${GREEN}✓ Installed dependencies${NC}"
@@ -229,7 +272,7 @@ else
 fi
 deactivate
 
-# 5. Install configuration file
+# 5. Install configuration file (Non-adaptive)
 echo ""
 echo "Setting up configuration..."
 CONFIG_FILE="/etc/athan-automation/config.ini"
@@ -248,7 +291,7 @@ else
     echo -e "${YELLOW}⚠ Configuration file already exists, skipping${NC}"
 fi
 
-# 6. Install main script and tools
+# 6. Install main script and tools (Non-adaptive)
 echo ""
 echo "Installing main script and prayer times calculator..."
 TOOLS_DIR="/usr/local/share/athan-automation/tools"
@@ -260,8 +303,9 @@ if [ -f athan_automation.py ]; then
 fi
 
 if [ -f tools/prayer_times_python.py ] && [ -f tools/prayer_times_shell.sh ]; then
+    # Use the newly adaptive shell script
     sudo cp tools/prayer_times_python.py "$TOOLS_DIR/"
-    sudo cp tools/prayer_times_shell.sh "$TOOLS_DIR/"
+    sudo cp tools/prayer_times_shell.sh "$TOOLS_DIR/" 
     sudo chmod 755 "$TOOLS_DIR/prayer_times_shell.sh"
     sudo chmod 644 "$TOOLS_DIR/prayer_times_python.py"
     echo -e "${GREEN}✓ Installed prayer times calculator tools${NC}"
@@ -273,10 +317,11 @@ fi
 echo ""
 echo "Checking and configuring web server..."
 WEB_SERVER=""
+# Check for common web servers (use the correct service names if possible)
 if systemctl is-active --quiet lighttpd; then
     WEB_SERVER="lighttpd"
-elif systemctl is-active --quiet apache2; then
-    WEB_SERVER="apache2"
+elif systemctl is-active --quiet $APACHE_SERVICE; then
+    WEB_SERVER="$APACHE_SERVICE"
 elif systemctl is-active --quiet nginx; then
     WEB_SERVER="nginx"
 fi
@@ -288,25 +333,23 @@ fi
 if [ ! -z "$WEB_SERVER" ]; then
     echo -e "${GREEN}✓ Web server detected/installed: $WEB_SERVER${NC}"
     configure_webserver "$WEB_SERVER"
-    # CRITICAL FIX: Explicitly echo a newline after the complex execution block
-    # to ensure the shell parser correctly moves to the next command.
     echo "" 
 fi
 
-# 8. Check for avahi (mDNS) - Already installed in step 1
+# 8. Check for avahi (mDNS) - Uses adaptive service name
 echo "Checking Avahi daemon status..."
-if systemctl is-active --quiet avahi-daemon; then
-    echo -e "${GREEN}✓ avahi-daemon is running${NC}"
+if systemctl is-active --quiet $AVAHI_SERVICE; then
+    echo -e "${GREEN}✓ $AVAHI_SERVICE is running${NC}"
 else
-    echo -e "${YELLOW}⚠ avahi-daemon is not running. Starting it...${NC}"
-    sudo systemctl start avahi-daemon || echo -e "${RED}Error: Failed to start avahi-daemon.${NC}"
+    echo -e "${YELLOW}⚠ $AVAHI_SERVICE is not running. Starting it...${NC}"
+    sudo systemctl start $AVAHI_SERVICE || echo -e "${RED}Error: Failed to start $AVAHI_SERVICE.${NC}"
 fi
 
-# 9. System service setup (AUTOMATED)
+# 9. System service setup (Non-adaptive service path)
 echo ""
 echo "Setting up systemd service automatically..."
 
-# Create a customized service file
+# Create a customized service file (Uses $USER variable)
 SERVICE_FILE="/tmp/athan-automation.service"
 cat > $SERVICE_FILE << EOF
 [Unit]
@@ -317,7 +360,7 @@ Wants=time-sync.target
 [Service]
 User=$USER
 WorkingDirectory=/var/lib/athan-automation
-ExecStart=$HOME/athan-automation-env/bin/python /usr/local/bin/athan-automation
+ExecStart=/usr/local/share/athan-automation/venv/bin/python /usr/local/bin/athan-automation
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -340,14 +383,11 @@ PRAYER_TIMES_SCRIPT="/usr/local/share/athan-automation/tools/prayer_times_shell.
 if [ -f "$PRAYER_TIMES_SCRIPT" ]; then
     echo -e "${YELLOW}Running $PRAYER_TIMES_SCRIPT... (You will be prompted for location settings)${NC}"
     
-    # Run the script from its installed directory
     (
         cd /usr/local/share/athan-automation/tools
-        # The script handles its own venv activation and file movement
-        ./prayer_times_shell.sh
+        ./prayer_times_shell.sh # This is now the adaptive script
     )
     
-    # Check if the file was created by the sub-script
     if [ -f /var/lib/athan-automation/prayer_times.csv ]; then
         echo -e "${GREEN}✓ Initial prayer times generated and installed.${NC}"
     else
@@ -364,10 +404,12 @@ echo "================================"
 echo "Setup Complete!"
 echo "================================"
 echo ""
-echo -e "${GREEN}Installation Summary:${NC}"
+echo -e "${GREEN}Installation Summary (Adaptive):${NC}"
 echo "  ✓ Configuration: /etc/athan-automation/config.ini"
 echo "  ✓ Main script: /usr/local/bin/athan-automation"
 echo "  ✓ Web Server: $WEB_SERVER (configured for Athan files)"
+echo "  ✓ Package Manager: $PKG_MANAGER"
+echo "  ✓ Avahi Service: $AVAHI_SERVICE"
 echo "  ✓ Prayer Times: Generated and installed at /var/lib/athan-automation/prayer_times.csv"
 echo "  ✓ System Service: Installed, but NOT YET ENABLED/STARTED."
 echo ""

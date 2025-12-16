@@ -8,7 +8,7 @@ Wants=time-sync.target
 User=your-username
 WorkingDirectory=/var/lib/athan-automation
 #you can change the Python virtual environment folder location as needed
-ExecStart=/home/your-username/athan-automation-env/bin/python /usr/local/bin/athan-automation
+ExecStart=/var/lib/athan-automation/env/bin/python /usr/local/bin/athan-automation
 Restart=always
 
 [Install]

@@ -1,44 +1,56 @@
 #!/bin/bash
 
-# Prayer Times Generator - Shell Script Wrapper
-# This script checks dependencies and runs the Python prayer times calculator
-# REVISED: Automatically moves the generated CSV to the final destination using sudo.
+# Prayer Times Generator - Adaptive Shell Script Wrapper
+# This script checks dependencies, sets paths, and runs the Python prayer times calculator.
+# It uses an adaptive approach for portability between different Linux distributions.
 
 set -e
 
 echo "=== Prayer Times Generator ==="
 echo
 
-# Set virtual environment path
-VENV_PATH="$HOME/athan-automation-env"
-
-# Final destination for the prayer times CSV
+# --- Configuration Variables ---
+VENV_PATH="/usr/local/share/athan-automation/venv"
 FINAL_DESTINATION="/var/lib/athan-automation/prayer_times.csv"
+REQUIRED_PACKAGES=("praytimes" "hijridate")
 
-# Check if virtual environment exists
-if [ ! -d "$VENV_PATH" ]; then
-    echo "Error: Virtual environment not found at $VENV_PATH"
-    echo "Please create it with: python3 -m venv $VENV_PATH"
+# --- Function to check for required binaries in VENV ---
+
+check_venv_binaries() {
+    PYTHON="$VENV_PATH/bin/python"
+    PIP="$VENV_PATH/bin/pip"
+
+    if [ ! -f "$PYTHON" ]; then
+        echo "Error: Python binary not found in virtual environment at $PYTHON"
+        return 1
+    fi
+    if [ ! -f "$PIP" ]; then
+        echo "Warning: pip binary not found in virtual environment at $PIP. Dependency check may fail."
+    fi
+    return 0
+}
+
+# --- Main Script Start ---
+
+# Check if virtual environment exists and is usable
+if [ ! -d "$VENV_PATH" ] || [ ! -f "$VENV_PATH/bin/activate" ]; then
+    echo "Error: Virtual environment not found or incomplete at $VENV_PATH"
+    echo "Please run the setup script first."
     exit 1
 fi
 
 # Activate virtual environment
 source "$VENV_PATH/bin/activate"
 
-# Use the virtual environment's Python and pip
-PYTHON="$VENV_PATH/bin/python"
-PIP="$VENV_PATH/bin/pip"
-
-# Check if Python exists in venv
-if [ ! -f "$PYTHON" ]; then
-    echo "Error: Python not found in virtual environment at $PYTHON"
+# Check and set VENV binaries
+if ! check_venv_binaries; then
+    deactivate
     exit 1
 fi
 
 # Check and install required Python packages
 echo "Checking Python dependencies in virtual environment..."
 
-REQUIRED_PACKAGES=("praytimes" "hijridate")
 MISSING_PACKAGES=()
 
 for package in "${REQUIRED_PACKAGES[@]}"; do
@@ -61,6 +73,7 @@ if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
 fi
 
 # Check if the Python script exists
+# Note: The assumption that the Python script is in the same directory must hold.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_SCRIPT="$SCRIPT_DIR/prayer_times_python.py"
 
@@ -71,7 +84,7 @@ if [ ! -f "$PYTHON_SCRIPT" ]; then
     exit 1
 fi
 
-# Create a temporary directory for output
+# Create a temporary directory for output and run script from there
 TEMP_DIR=$(mktemp -d)
 TEMP_CSV="$TEMP_DIR/prayer_times.csv"
 cd "$TEMP_DIR"
@@ -90,6 +103,10 @@ if [ -f "prayer_times.csv" ]; then
     
     # --- AUTOMATIC FILE MOVEMENT ---
     echo "Moving file to final location: $FINAL_DESTINATION (requires sudo)..."
+    
+    # Ensure the destination directory exists before moving
+    sudo mkdir -p "$(dirname "$FINAL_DESTINATION")"
+
     sudo mv "prayer_times.csv" "$FINAL_DESTINATION"
     sudo chmod 644 "$FINAL_DESTINATION"
     
@@ -101,7 +118,6 @@ if [ -f "prayer_times.csv" ]; then
     else
         echo
         echo "✗ Error: Failed to move prayer_times.csv to $FINAL_DESTINATION"
-        echo "  The file remains at: $TEMP_CSV"
         exit 1
     fi
 else
@@ -111,7 +127,6 @@ else
 fi
 
 # Cleanup
-cd ~
 rm -rf "$TEMP_DIR"
 deactivate
 

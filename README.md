@@ -1,13 +1,13 @@
 # Athan Automation for Chromecast
 
-Automatically play the Islamic call to prayer (Athan) on your Chromecast devices at the correct prayer times. This Python script reads prayer times from a CSV file and broadcasts beautiful Athan recitations to your Google Cast-enabled speakers or displays.
+Automatically play the Islamic call to prayer (Athan) on your Chromecast devices at the correct prayer times. This Python script reads prayer times from a CSV file and broadcasts Athan recitations to your Google Cast-enabled speakers or displays.
 
 ## Features
 
 - Automatic Athan playback at all five daily prayer times
 - Random selection from multiple Athan audio files
 - Special Ramadan support with Iftar announcements (announcement is hard-coded to start earlier than prayer time to allow of anticipatory tune)
-- Supports multiple Chromecast devices
+- Supports multiple Chromecast devices as well as speaker groups
 - Configurable volume levels (separate settings for Fajr and other prayers)
 - Displays beautiful Islamic artwork during playback
 - ID3 metadata support (shows reciter name, title, etc.)
@@ -15,11 +15,11 @@ Automatically play the Islamic call to prayer (Athan) on your Chromecast devices
 - Comprehensive logging with rotation
 - Automatic retry and error recovery
 - Built-in prayer times calculator
+- Supports Debian and RHEL/Fedora based distro
 
 ## Prerequisites
 
-- Raspberry Pi or Linux server (can run 24/7)
-- Python 3.7 or higher
+- Raspberry Pi or Linux server (can run 24/7) running any Debian or Fedora based distribution
 - Google Chromecast devices on the same network
 - Web server (lighttpd, Apache, or nginx) to serve audio files
 
@@ -53,6 +53,17 @@ Place your Athan MP3 files in the appropriate directories:
 - `/var/www/html/athan/prayer/` - Regular prayer Athan files
 - `/var/www/html/athan/iftar/` - Ramadan Iftar announcement files
 
+#### For Fedora Linux
+- After you copy your files to the apropriate folder you need to rest the file tags so the webserver can server them correctly.
+
+```bash
+# This ensures Nginx (httpd_t) is allowed to read everything inside.
+sudo restorecon -Rv /var/www/html/athan/
+
+# Re-test the service status to confirm it's running (optional but good practice)
+sudo systemctl status nginx
+```
+
 **Note:** Make sure your MP3 files have proper ID3 tags (title, artist, album) for best display on Chromecast devices.
 
 ### 4. Add Artwork (Optional)
@@ -60,6 +71,17 @@ Place your Athan MP3 files in the appropriate directories:
 Place artwork images in `/var/www/html/files/athan/`:
 - `Mohamed_Ali_Mosque.jpg` - Displayed during regular prayers
 - `Iftar.jpg` - Displayed during Ramadan Iftar
+
+#### For Fedora Linux
+- Again, make sure to reset the file tags
+
+```bash
+# This ensures Nginx (httpd_t) is allowed to read everything inside.
+sudo restorecon -Rv /var/www/html/athan/
+
+# Re-test the service status to confirm it's running (optional but good practice)
+sudo systemctl status nginx
+```
 
 ### 5. Configure Your Settings
 
@@ -128,9 +150,8 @@ This project follows the Filesystem Hierarchy Standard (FHS):
 /var/log/athan-automation/      # Log files
 └── athan.log                   # Application logs
 
-~/athan-automation-env/         # Python virtual environment
-
 /usr/local/share/athan-automation/  # Shared resources
+├── venv/						# Python virtual environment
 └── tools/                      # Prayer times calculator
     ├── prayer_times_python.py
     └── prayer_times_shell.sh
@@ -201,7 +222,7 @@ sudo tail -f /var/log/athan-automation/athan.log
 
 ```bash
 # Activate virtual environment
-source ~/athan-automation-env/bin/activate
+source /usr/local/share/athan-automation/venv/bin/activate
 
 # Run the script
 python /usr/local/bin/athan-automation
@@ -296,8 +317,8 @@ sudo systemctl restart nginx
 ### Audio Files Not Playing
 
 - Verify web server is running: `sudo systemctl status lighttpd`
-- Test audio URL in browser: `http://your-ip/athan/prayer/file.mp3`
-- Check file permissions: `sudo chmod 644 /var/local/athan/audio/**/*.mp3`
+- Test audio URL in browser: `http://your-ip/html/athan/prayer/file.mp3`
+- Check file permissions: `sudo chmod 644 /var/www/html/athan/audio/**/*.mp3`
 
 ### Service Won't Start
 
@@ -314,7 +335,7 @@ sudo systemctl restart athan-automation.service
 
 ### Prayer Times Calculator Issues
 
-- Ensure dependencies are installed: `source ~/athan-automation-env/bin/activate && pip install praytimes hijridate`
+- Ensure dependencies are installed: `source /usr/share/athan-automation/venv/bin/activate && pip install praytimes hijridate`
 - Check coordinates are valid (latitude: -90 to 90, longitude: -180 to 180)
 - Verify date range is correct (end date after start date)
 
