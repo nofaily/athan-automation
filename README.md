@@ -313,6 +313,7 @@ sudo systemctl restart nginx
 - Check firewall settings (allow mDNS/port 5353)
 - Verify the device name matches exactly (case-sensitive)
 - Restart the Avahi daemon: `sudo systemctl restart avahi-daemon`
+- Use your http server IP address instead of hostname, edit `lighttpd_base_url` in the `/etc/athan-automation/config.ini` file to reflect the IP address of your server.
 
 ### Audio Files Not Playing
 
