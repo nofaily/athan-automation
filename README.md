@@ -54,7 +54,7 @@ Place your Athan MP3 files in the appropriate directories:
 - `/var/www/html/athan/iftar/` - Ramadan Iftar announcement files
 
 #### For Fedora Linux
-- After you copy your files to the apropriate folder you need to rest the file tags so the webserver can server them correctly.
+- After you copy your files to the apropriate folder you need to reset the file tags so the webserver can server them correctly.
 
 ```bash
 # This ensures Nginx (httpd_t) is allowed to read everything inside.
