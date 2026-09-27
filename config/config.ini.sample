@@ -26,3 +26,15 @@ log_file = /var/log/athan-automation/athan.log
 athan_volume_level = 0.4
 fajr_volume_level = 0.4
 
+# Network interface(s) for Chromecast discovery (mDNS). Set to this machine's
+# LAN IP to avoid unusable interfaces such as VPN links; comma-separate for
+# multiple. Leave blank to use all interfaces.
+zeroconf_interface =
+
+# Chromecast connection attempts, and seconds allowed per attempt
+max_retries = 3
+timeout = 30
+
+# Skip the Athan if the speaker could only be reached this many seconds
+# after the prayer time (prevents playing a stale Athan hours late)
+max_late_seconds = 600

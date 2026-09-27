@@ -177,6 +177,10 @@ iftar_device = All speakers
 log_file = /var/log/athan-automation/athan.log
 athan_volume_level = 0.4
 fajr_volume_level = 0.2
+zeroconf_interface =
+max_retries = 3
+timeout = 30
+max_late_seconds = 600
 ```
 
 ### Configuration Options
@@ -193,6 +197,10 @@ fajr_volume_level = 0.2
 - **log_file** - Path to log file
 - **athan_volume_level** - Volume for regular prayers (0.0 to 1.0)
 - **fajr_volume_level** - Volume for Fajr prayer (0.0 to 1.0)
+- **zeroconf_interface** - LAN IP(s) to use for Chromecast discovery, comma-separated; blank uses all interfaces. Set this if a VPN or other interface causes mDNS errors
+- **max_retries** - Chromecast connection attempts before skipping a prayer
+- **timeout** - Seconds allowed per connection attempt
+- **max_late_seconds** - Skip the Athan if the speaker is only reached this many seconds after the prayer time
 
 ## Usage
 
