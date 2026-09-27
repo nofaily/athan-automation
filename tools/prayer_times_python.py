@@ -5,6 +5,7 @@ Calculates prayer times for a date range and outputs to CSV
 """
 
 import csv
+import sys
 from datetime import datetime, timedelta
 from praytimes import PrayTimes
 from hijridate import Hijri, Gregorian
@@ -115,7 +116,7 @@ def main():
     
     if end_date < start_date:
         print("Error: End date must be after start date.")
-        return
+        sys.exit(1)
     
     # Initialize PrayTimes
     pt = PrayTimes()
@@ -187,10 +188,10 @@ def main():
     # Write to CSV
     with open('prayer_times.csv', 'w', newline='', encoding='utf-8') as csvfile:
         writer = csv.writer(csvfile)
-        # No header as per requirements
+        # First row is the header expected by athan_automation.py
         writer.writerows(prayer_data)
     
-    print(f"\n✓ Successfully calculated {len(prayer_data)} prayer times")
+    print(f"\n✓ Successfully calculated {len(prayer_data) - 1} prayer times")
     print(f"  Date range: {start_date.date()} to {end_date.date()}")
     print(f"  Total days: {(end_date - start_date).days + 1}")
 
@@ -200,7 +201,9 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\n\nOperation cancelled by user.")
+        sys.exit(130)
     except Exception as e:
         print(f"\nError: {e}")
         import traceback
         traceback.print_exc()
+        sys.exit(1)

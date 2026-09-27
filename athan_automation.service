@@ -2,6 +2,7 @@
 Description=Athan Automation Service 
 After=network.target time-sync.target
 Wants=time-sync.target
+StartLimitIntervalSec=0
 
 [Service]
 #change to your actual username
@@ -10,6 +11,7 @@ WorkingDirectory=/var/lib/athan-automation
 #you can change the Python virtual environment folder location as needed
 ExecStart=/var/lib/athan-automation/env/bin/python /usr/local/bin/athan-automation
 Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
