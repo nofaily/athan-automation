@@ -6,7 +6,7 @@ Automatically play the Islamic call to prayer (Athan) on your Chromecast devices
 
 - Automatic Athan playback at all five daily prayer times
 - Random selection from multiple Athan audio files
-- Special Ramadan support with Iftar announcements (announcement is hard-coded to start earlier than prayer time to allow of anticipatory tune)
+- Special Ramadan support with Iftar announcements (the announcement is hard-coded to start 2.5 minutes before Maghrib to allow for an anticipatory tune)
 - Supports multiple Chromecast devices as well as speaker groups
 - Configurable volume levels (separate settings for Fajr and other prayers)
 - Displays beautiful Islamic artwork during playback
@@ -15,13 +15,13 @@ Automatically play the Islamic call to prayer (Athan) on your Chromecast devices
 - Comprehensive logging with rotation
 - Automatic retry and error recovery
 - Built-in prayer times calculator
-- Supports Debian and RHEL/Fedora based distro
+- Supports Debian and RHEL/Fedora based distributions
 
 ## Prerequisites
 
 - Raspberry Pi or Linux server (can run 24/7) running any Debian or Fedora based distribution
 - Google Chromecast devices on the same network
-- Web server (lighttpd, Apache, or nginx) to serve audio files
+- Web server (lighttpd, Apache, or nginx) to serve audio files (the setup script installs and configures nginx if none is running)
 
 ## Installation
 
@@ -54,7 +54,7 @@ Place your Athan MP3 files in the appropriate directories:
 - `/var/www/html/athan/iftar/` - Ramadan Iftar announcement files
 
 #### For Fedora Linux
-- After you copy your files to the apropriate folder you need to reset the file tags so the webserver can server them correctly.
+- After you copy your files to the appropriate folder, you need to restore the SELinux file labels so the web server can serve them correctly.
 
 ```bash
 # This ensures Nginx (httpd_t) is allowed to read everything inside.
@@ -68,12 +68,12 @@ sudo systemctl status nginx
 
 ### 4. Add Artwork (Optional)
 
-Place artwork images in `/var/www/html/files/athan/`:
+Place artwork images in `/var/www/html/athan/`:
 - `Mohamed_Ali_Mosque.jpg` - Displayed during regular prayers
 - `Iftar.jpg` - Displayed during Ramadan Iftar
 
 #### For Fedora Linux
-- Again, make sure to reset the file tags
+- Again, make sure to restore the SELinux file labels
 
 ```bash
 # This ensures Nginx (httpd_t) is allowed to read everything inside.
@@ -92,7 +92,8 @@ nano /etc/athan-automation/config.ini
 ```
 
 Update the following settings:
-- `lighttpd_base_url` - Your server's IP address or url (doesn't have to be lighttpd, any webserver would work fine as long as it can serve files from `/var/www/html/athan`)
+- `lighttpd_base_url` - Your server's IP address or URL (doesn't have to be lighttpd; any web server works as long as it serves `/var/www/html/athan`)
+- `athan_art_url` / `iftar_art_url` - Update the host in these URLs to match your server
 - `athan_device` - Name of your Chromecast device
 - `iftar_device` - Device for Ramadan announcements
 - Volume levels as preferred
@@ -134,7 +135,7 @@ This project follows the Filesystem Hierarchy Standard (FHS):
 └── config.ini                  # Main configuration
 
 /usr/local/bin/                 # Executable script
-└── athan-automation            # Main script (symlink)
+└── athan-automation            # Main script (copy of athan_automation.py)
 
 /var/lib/athan-automation/      # Application data
 └── prayer_times.csv            # Prayer times schedule
@@ -151,7 +152,7 @@ This project follows the Filesystem Hierarchy Standard (FHS):
 └── athan.log                   # Application logs
 
 /usr/local/share/athan-automation/  # Shared resources
-├── venv/						# Python virtual environment
+├── venv/                       # Python virtual environment
 └── tools/                      # Prayer times calculator
     ├── prayer_times_python.py
     └── prayer_times_shell.sh
@@ -229,6 +230,9 @@ sudo tail -f /var/log/athan-automation/athan.log
 ### Manual Testing
 
 ```bash
+# Stop the service first so two instances don't run at once
+sudo systemctl stop athan-automation.service
+
 # Activate virtual environment
 source /usr/local/share/athan-automation/venv/bin/activate
 
@@ -241,7 +245,6 @@ python /usr/local/bin/athan-automation
 When you need to update prayer times (e.g., new year, different location):
 
 ```bash
-source ~/athan-automation-env/bin/activate
 cd /usr/local/share/athan-automation/tools
 ./prayer_times_shell.sh
 sudo systemctl restart athan-automation.service
@@ -249,13 +252,14 @@ sudo systemctl restart athan-automation.service
 
 ## Finding Your Chromecast Device Names
 
-To find the exact names of your Chromecast devices:
+To find the exact names of your Chromecast devices, run this with the virtual environment's Python (`/usr/local/share/athan-automation/venv/bin/python`):
 
 ```python
 import pychromecast
 chromecasts, browser = pychromecast.get_chromecasts()
 for cc in chromecasts:
     print(cc.name)
+browser.stop_discovery()
 ```
 
 Or check the Google Home app on your phone.
@@ -281,9 +285,9 @@ sudo systemctl restart lighttpd
 
 ### Apache Configuration
 
-Create `/etc/apache2/conf-available/athan.conf`:
+Create `/etc/apache2/conf-available/athan.conf` (on Fedora/RHEL: `/etc/httpd/conf.d/athan.conf`):
 
-```apache2
+```apache
 Alias /html/athan/ /var/www/html/athan/
 <Directory /var/www/html/athan/>
     Options -Indexes
@@ -293,13 +297,17 @@ Alias /html/athan/ /var/www/html/athan/
 
 Enable and restart:
 ```bash
+# Debian/Ubuntu
 sudo a2enconf athan
 sudo systemctl restart apache2
+
+# Fedora/RHEL (no a2enconf needed)
+sudo systemctl restart httpd
 ```
 
 ### Nginx Configuration
 
-Add to `/etc/nginx/sites-available/default`:
+The setup script configures nginx automatically. To do it manually, add this to the `server` block in `/etc/nginx/sites-available/default` (on Fedora/RHEL: a file in `/etc/nginx/conf.d/`):
 
 ```nginx
 location /html/athan {
@@ -321,13 +329,15 @@ sudo systemctl restart nginx
 - Check firewall settings (allow mDNS/port 5353)
 - Verify the device name matches exactly (case-sensitive)
 - Restart the Avahi daemon: `sudo systemctl restart avahi-daemon`
-- Use your http server IP address instead of hostname, edit `lighttpd_base_url` in the `/etc/athan-automation/config.ini` file to reflect the IP address of your server.
+- If a VPN or other interface causes mDNS errors, set `zeroconf_interface` to this machine's LAN IP
 
 ### Audio Files Not Playing
 
-- Verify web server is running: `sudo systemctl status lighttpd`
+- Verify web server is running: `sudo systemctl status nginx` (or `lighttpd` / `apache2` / `httpd`)
 - Test audio URL in browser: `http://your-ip/html/athan/prayer/file.mp3`
-- Check file permissions: `sudo chmod 644 /var/www/html/athan/audio/**/*.mp3`
+- Check file permissions: `sudo chmod 644 /var/www/html/athan/*/*.mp3`
+- Use your web server's IP address instead of its hostname in `lighttpd_base_url` (and the art URLs) in `/etc/athan-automation/config.ini`; Chromecasts often can't resolve local hostnames
+- On Fedora/RHEL, restore SELinux labels: `sudo restorecon -Rv /var/www/html/athan/`
 
 ### Service Won't Start
 
@@ -337,14 +347,14 @@ sudo systemctl restart nginx
 
 ### Configuration Changes Not Taking Effect
 
-The script hot-reloads configuration automatically for volume and speaker names only. For other configuration changes, you can restart:
+The script re-reads `config.ini` automatically when it changes, but only picks up the new values when it next wakes up for a prayer. To apply changes immediately (for example, a new prayer times file), restart the service:
 ```bash
 sudo systemctl restart athan-automation.service
 ```
 
 ### Prayer Times Calculator Issues
 
-- Ensure dependencies are installed: `source /usr/share/athan-automation/venv/bin/activate && pip install praytimes hijridate`
+- Ensure dependencies are installed: `source /usr/local/share/athan-automation/venv/bin/activate && pip install praytimes hijridate`
 - Check coordinates are valid (latitude: -90 to 90, longitude: -180 to 180)
 - Verify date range is correct (end date after start date)
 
@@ -356,7 +366,7 @@ During Ramadan, the script automatically:
 - Displays Iftar artwork
 - Selects audio from the iftar folder
 
-Simply set the "Month" column to "Ramadan" in your prayer times CSV.
+The built-in calculator fills in the Hijri month automatically. If you build the CSV yourself, set the "Month" column to "Ramadan" for those days.
 
 ## Contributing
 
