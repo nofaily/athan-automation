@@ -6,17 +6,19 @@ Line numbers refer to the code as of commit `15f1461`.
 
 ## High: missed or wrong-time Athans
 
-- [ ] **1. Fajr can play an hour early or be skipped on daylight-saving days** — `athan_automation.py:531`
+- [x] **1. Fajr can play an hour early or be skipped on daylight-saving days** — `athan_automation.py:531`
   The script sleeps for the whole wait in one `time.sleep()`, but prayer times are local clock times. When the clocks go back, Fajr plays an hour early (the lateness guard only checks for late). When they go forward, it wakes an hour late and skips Fajr. The same applies to a Raspberry Pi at boot, before its clock syncs over the network.
   *Fix:* sleep in short chunks (e.g. 30 s) and re-check `datetime.now()` each time.
+  Fixed in `cc7e5e2`.
 
 - [ ] **2. Generated prayer times are an hour off on each clock-change day** — `tools/prayer_times_python.py:152`
   The timezone offset is read at midnight, but clocks change at about 2 AM, so all five prayers that day use the old offset.
   *Fix:* read the offset at noon. (`datetime.utcfromtimestamp` is also deprecated in Python 3.12.)
 
-- [ ] **3. Connection timeouts don't actually time out** — `athan_automation.py:276`
+- [x] **3. Connection timeouts don't actually time out** — `athan_automation.py:276`
   `run_with_timeout` uses `ThreadPoolExecutor` as a context manager, whose exit waits for the task to finish. A 1 s timeout on a 4 s task returned after 4 s. An unreachable speaker can therefore block `cast.wait()` for hours and later prayers are missed.
   *Fix:* pass the timeout to `cast.wait(timeout=...)`, or shut the pool down with `wait=False`.
+  Fixed in `cc7e5e2`.
 
 ## High: `setup.sh` breaks on common setups
 
@@ -47,6 +49,7 @@ Line numbers refer to the code as of commit `15f1461`.
 
 - [ ] **11. A failed connection attempt leaves discovery running** — `athan_automation.py:308`
   If the connect times out, the browser is never stopped, so each failed attempt leaks a discovery thread.
+  Partly fixed in `cc7e5e2`: discovery is now stopped when the connect fails, but if discovery itself times out the browser is still never stopped.
 
 ## Low
 
