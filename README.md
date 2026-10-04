@@ -182,6 +182,7 @@ zeroconf_interface =
 max_retries = 3
 timeout = 30
 max_late_seconds = 600
+clock_sync_max_wait = 300
 ```
 
 ### Configuration Options
@@ -202,6 +203,7 @@ max_late_seconds = 600
 - **max_retries** - Chromecast connection attempts before skipping a prayer
 - **timeout** - Seconds allowed per connection attempt
 - **max_late_seconds** - Skip the Athan if the speaker is only reached this many seconds after the prayer time
+- **clock_sync_max_wait** - At startup, seconds to wait for the clock to sync over NTP before scheduling; after that it proceeds on the local clock
 
 ## Usage
 

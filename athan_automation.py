@@ -1,11 +1,15 @@
 import pychromecast
+from pychromecast.config import APP_MEDIA_RECEIVER
+from pychromecast.response_handler import WaitResponse
+from pychromecast.controllers.multizone import MultizoneController
 import pandas as pd
 import time
 import logging
 from datetime import datetime, timedelta
 import os
 import random
-import sys
+import subprocess
+import threading
 from logging.handlers import RotatingFileHandler
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from zeroconf import Zeroconf
@@ -22,6 +26,10 @@ import configparser
 #   - Discovery and connect are bounded by TIMEOUT/MAX_RETRIES; if the device
 #     can't be reached the prayer is skipped, and playback is skipped when more
 #     than MAX_LATE_SECONDS past the prayer time (no stale athan hours later).
+#   - Waits re-check the wall clock in short chunks, and startup waits (bounded)
+#     for NTP sync, so clock corrections and DST changes don't shift the athan.
+#   - If another cast (e.g. a doorbell chime sent to a speaker group) interrupts
+#     the athan, it waits for that cast to finish and resumes where it stopped.
 #   - Repeated identical log lines are collapsed so a storm can't rotate real
 #     history away.
 # ================================
@@ -63,6 +71,8 @@ def load_config():
         # If we only manage to connect this many seconds after the prayer time,
         # skip playback rather than playing a stale athan (e.g. Isha at Fajr).
         'MAX_LATE_SECONDS': section.getint('MAX_LATE_SECONDS', 600),
+        # At startup, how long to wait for NTP sync before scheduling anyway.
+        'CLOCK_SYNC_MAX_WAIT': section.getint('CLOCK_SYNC_MAX_WAIT', 300),
     }
 
     # Warn if the prayer times file is missing
@@ -76,6 +86,7 @@ def load_config():
 current_config, last_mtime = load_config()
 
 retry_delay = 5  # seconds between retries
+SLEEP_CHUNK_SECONDS = 30  # max single sleep while waiting for a prayer
 
 # ========================
 # Logging Configuration
@@ -148,7 +159,10 @@ logging.basicConfig(
 # INFO line on every reconnect cycle - that noise is what drowned the real log
 # history. Keep WARNING+ so genuine errors still surface.
 logging.getLogger('pychromecast').setLevel(logging.WARNING)
-logging.getLogger('zeroconf').setLevel(logging.WARNING)
+# zeroconf logs a multi-line traceback (as WARNING) whenever it can't answer an
+# mDNS query on an unusable interface (e.g. a VPN link, Errno 126); harmless,
+# so only show real errors.
+logging.getLogger('zeroconf').setLevel(logging.ERROR)
 
 
 # Initialize the log
@@ -180,7 +194,7 @@ def setup_logging(log_file):
     logging.root.setLevel(logging.INFO)
     logging.root.addHandler(_build_handler(log_file))
     logging.getLogger('pychromecast').setLevel(logging.WARNING)
-    logging.getLogger('zeroconf').setLevel(logging.WARNING)
+    logging.getLogger('zeroconf').setLevel(logging.ERROR)
     logging.info("Logging reconfigured. Now writing to: " + log_file)
 
 
@@ -274,14 +288,22 @@ def safe_get_listed_chromecasts(*args, **kwargs):
 
 
 def run_with_timeout(func, *args, timeout, **kwargs):
-    """Run a blocking function with hard timeout protection."""
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(func, *args, **kwargs)
-        try:
-            return future.result(timeout=timeout)
-        except TimeoutError:
-            future.cancel()
-            raise TimeoutError(f"{func.__name__} timed out after {timeout}s")
+    """Run a blocking function with hard timeout protection.
+
+    Deliberately NOT a `with ThreadPoolExecutor()` block: its __exit__ calls
+    shutdown(wait=True), which blocks until func returns - so the "timeout"
+    only fired once the device came back, possibly hours later. On timeout we
+    abandon the worker thread instead.
+    """
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(func, *args, **kwargs)
+    try:
+        return future.result(timeout=timeout)
+    except TimeoutError:
+        future.cancel()
+        raise TimeoutError(f"{func.__name__} timed out after {timeout}s")
+    finally:
+        executor.shutdown(wait=False)
 
 
 def cast_is_healthy(cast):
@@ -292,6 +314,16 @@ def cast_is_healthy(cast):
         return False
 
 
+def disconnect_quietly(cast):
+    """Disconnect a cast and stop its socket worker thread, ignoring errors."""
+    if not cast.socket_client.is_alive():
+        return  # never connected; join() would raise on an unstarted thread
+    try:
+        cast.disconnect(timeout=10)
+    except Exception as e:
+        logging.warning(f"Error disconnecting abandoned cast connection: {e}")
+
+
 def connect_to_chromecast(device_name, max_retries, timeout):
     """Connect to device_name with bounded retries. Never blocks indefinitely.
 
@@ -299,6 +331,7 @@ def connect_to_chromecast(device_name, max_retries, timeout):
     prayer instead of hanging for hours.
     """
     for attempt in range(1, max_retries + 1):
+        cast = None
         try:
             if not zeroconf_is_alive():
                 logging.info("Zeroconf loop not running; reinitializing before connect.")
@@ -317,17 +350,17 @@ def connect_to_chromecast(device_name, max_retries, timeout):
                 continue
 
             cast = chromecasts[0]
-            # Bound the socket connect too; an unbounded cast.wait() can hang for hours.
-            run_with_timeout(cast.wait, timeout=timeout)
             # Stop discovery threads but KEEP the shared Zeroconf alive.
             stop_discovery_keep_zeroconf(browser)
+            # Bound the socket connect too; an unbounded cast.wait() can hang for hours.
+            # cast.wait() supports a native timeout and raises RequestTimeout
+            # when it expires (handled below, which also disconnects the cast).
+            cast.wait(timeout=timeout)
 
             if not cast_is_healthy(cast):
-                logging.warning(f"Connected to {device_name} but socket not healthy; retrying.")
-                try:
-                    cast.disconnect()
-                except Exception:
-                    pass
+                logging.warning(f"Could not establish a healthy connection to {device_name} "
+                                f"within {timeout}s (attempt {attempt}/{max_retries}).")
+                disconnect_quietly(cast)
                 time.sleep(retry_delay)
                 continue
 
@@ -342,6 +375,11 @@ def connect_to_chromecast(device_name, max_retries, timeout):
             if "Zeroconf instance loop must be running" in str(e) or "event loop is not running" in str(e):
                 logging.error("Detected Zeroconf shut down. Reinitializing Zeroconf...")
                 reinit_zeroconf()
+        # Never abandon a half-open cast: its socket worker thread would keep
+        # reconnecting in the background forever, logging "Error reading from
+        # socket" while the script sleeps.
+        if cast is not None:
+            disconnect_quietly(cast)
         time.sleep(retry_delay)
 
     raise ConnectionError(f"Failed to connect to {device_name} after {max_retries} attempts")
@@ -386,6 +424,159 @@ def get_id3_metadata(file_path):
         return {}
 
 
+def is_too_late(prayer_name, prayer_time):
+    """True (and logs a skip) if we're more than MAX_LATE_SECONDS past prayer_time."""
+    if prayer_time is None:
+        return False
+    late = (datetime.now() - prayer_time).total_seconds()
+    if late > current_config['MAX_LATE_SECONDS']:
+        logging.warning(
+            f"Skipping {prayer_name}: {int(late)}s late "
+            f"(> MAX_LATE_SECONDS={current_config['MAX_LATE_SECONDS']}).")
+        return True
+    return False
+
+
+def ensure_media_receiver(cast, timeout):
+    """Launch the Default Media Receiver and wait until it accepts media commands.
+
+    Instead of firing play_media() at a cold device and hoping, ask the device:
+    start_app() blocks until the receiver acknowledges the launch, then we poll
+    until the app advertises the media namespace (mc.is_active). This replaces
+    the old "PLAY requested but no session is active" first-attempt failures.
+    Raises RuntimeError if the receiver isn't ready within `timeout` seconds.
+    """
+    mc = cast.media_controller
+    if cast.status.app_id != APP_MEDIA_RECEIVER or not mc.is_active:
+        logging.info(f"Launching Default Media Receiver (current app: {cast.status.display_name}).")
+        cast.start_app(APP_MEDIA_RECEIVER, timeout=timeout)
+
+    deadline = time.time() + timeout
+    while not mc.is_active:
+        if time.time() > deadline:
+            raise RuntimeError(f"Default Media Receiver not ready after {timeout}s")
+        time.sleep(0.5)
+    logging.info("Default Media Receiver is ready.")
+
+
+# =============================================================================
+# Interruption handling
+# -----------------------------------------------------------------------------
+# When something else casts to a group that includes our speaker (e.g. a home
+# automation doorbell chime sent to "All speakers"), our session on the speaker
+# simply ends. Polling with mc.update_status() would silently relaunch the
+# receiver on a speaker whose app has gone - cutting the other cast off - so we
+# only read pushed status, let the other cast finish, and resume the athan
+# where it stopped.
+# The other cast's playback state lives on the group that cast it (members
+# report UNKNOWN), so we also watch every group that shares our speaker.
+# =============================================================================
+ACTIVE_PLAYER_STATES = ('PLAYING', 'BUFFERING')
+INTERRUPTION_TIMEOUT = 180  # give up resuming if the speaker stays busy this long
+FREE_SECONDS = 5            # speaker must be quiet this long before we resume
+
+
+class _MultizoneReady:
+    """Listener that flags when a group's member list has arrived."""
+    def __init__(self):
+        self.event = threading.Event()
+    def multizone_member_added(self, group_uuid): pass
+    def multizone_member_removed(self, group_uuid): pass
+    def multizone_status_received(self): self.event.set()
+
+
+def get_group_members(cast, timeout=5):
+    """Return the set of member device ids of a group cast (empty if not a group)."""
+    if cast.cast_info.cast_type != 'group':
+        return set()
+    mz = MultizoneController(cast.uuid)
+    ready = _MultizoneReady()
+    mz.register_listener(ready)
+    cast.register_handler(mz)
+    mz.update_members()
+    if not ready.event.wait(timeout):
+        logging.warning(f"Could not read the member list of group {cast.name}.")
+    cast.unregister_handler(mz)
+    return set(mz.members)
+
+
+def is_our_session(cast, audio_url):
+    """True if the receiver on `cast` is holding our audio. Reads pushed status only:
+    never call mc.update_status() here, it launches an app on an idle speaker."""
+    try:
+        mc = cast.media_controller
+        return (cast.status is not None and cast.status.app_id == APP_MEDIA_RECEIVER
+                and mc.is_active and mc.status.content_id == audio_url)
+    except Exception:
+        return False
+
+
+def find_sharing_groups(cast):
+    """Connect to every other group that includes our speaker(s), e.g. All speakers."""
+    ours = get_group_members(cast) or {str(cast.uuid)}
+    groups = []
+    try:
+        found, browser = run_with_timeout(
+            pychromecast.get_chromecasts, zeroconf_instance=zeroconf_instance,
+            timeout=current_config['TIMEOUT'])
+        stop_discovery_keep_zeroconf(browser)
+    except Exception as e:
+        logging.warning(f"Discovery of groups sharing {cast.name} failed: {e}")
+        return groups
+    for c in found:
+        if c.cast_info.cast_type != 'group' or c.uuid == cast.uuid:
+            continue
+        try:
+            c.wait(timeout=10)
+            if get_group_members(c) & ours:
+                groups.append(c)
+                continue
+        except Exception as e:
+            logging.warning(f"Could not check group {c.name}: {e}")
+        disconnect_quietly(c)
+    logging.info(f"Groups sharing {cast.name}: {[g.name for g in groups]}")
+    return groups
+
+
+def wait_until_free(cast, audio_url, timeout):
+    """Wait for another cast on our speaker to finish. True if free within timeout."""
+    groups = find_sharing_groups(cast)
+    try:
+        deadline = time.time() + timeout
+        free_since = None
+        while time.time() < deadline:
+            busy = False
+            for c in [cast] + groups:
+                st = c.media_controller.status
+                if st.player_state in ACTIVE_PLAYER_STATES and st.content_id != audio_url:
+                    busy = True
+                    break
+            if busy:
+                free_since = None
+            elif free_since is None:
+                free_since = time.time()
+            elif time.time() - free_since >= FREE_SECONDS:
+                return True
+            time.sleep(1)
+        return False
+    finally:
+        for g in groups:
+            disconnect_quietly(g)
+
+
+def resume_audio(cast, audio_url, media_metadata, position, timeout=20):
+    """Relaunch the receiver and continue our audio from `position`."""
+    mc = cast.media_controller
+    ensure_media_receiver(cast, timeout)
+    mc.play_media(audio_url, 'audio/mp3', current_time=position, metadata=media_metadata)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if is_our_session(cast, audio_url) and mc.status.player_state in ACTIVE_PLAYER_STATES:
+            return
+        time.sleep(0.5)
+    raise RuntimeError(f"audio did not resume within {timeout}s")
+
+
 def cast_announcement_and_athan(audio_url, device_name, prayer_name, prayer_time=None):
     """
     Connect (bounded), cast the Athan, wait for playback, then always disconnect.
@@ -396,13 +587,8 @@ def cast_announcement_and_athan(audio_url, device_name, prayer_name, prayer_time
     cast = None
     try:
         # If we're already far past the scheduled time, don't play a stale athan.
-        if prayer_time is not None:
-            late = (datetime.now() - prayer_time).total_seconds()
-            if late > current_config['MAX_LATE_SECONDS']:
-                logging.warning(
-                    f"Skipping {prayer_name}: {int(late)}s late "
-                    f"(> MAX_LATE_SECONDS={current_config['MAX_LATE_SECONDS']}).")
-                return
+        if is_too_late(prayer_name, prayer_time):
+            return
 
         local_audio_path = audio_url.replace(current_config['LIGHTTPD_BASE_URL'], "/var/www/html/athan")
         metadata = get_id3_metadata(local_audio_path)
@@ -410,6 +596,11 @@ def cast_announcement_and_athan(audio_url, device_name, prayer_name, prayer_time
 
         # Bounded connect - raises ConnectionError instead of hanging forever.
         cast = connect_to_chromecast(device_name, current_config['MAX_RETRIES'], current_config['TIMEOUT'])
+
+        # Check again: connecting can take minutes, and an Isha at 2 AM is worse
+        # than a skipped one.
+        if is_too_late(prayer_name, prayer_time):
+            return
 
         mc = cast.media_controller
         logging.info(f"Active app is {cast.status.app_id}: {cast.status.display_name}.")
@@ -442,15 +633,20 @@ def cast_announcement_and_athan(audio_url, device_name, prayer_name, prayer_time
             'images': [{'url': thumbnail_url}],
         }
 
-        # Play with retries. A cold Default Media Receiver sometimes rejects the
-        # first play() ("no session is active") - the retry recovers it.
+        # Play with retries. Each attempt first confirms the media receiver is
+        # up, then waits for the device to acknowledge the LOAD and open a media
+        # session. autoplay (the default) starts playback, so no separate play().
         retries = 3
         for attempt in range(retries):
             try:
-                mc.play_media(audio_url, 'audio/mp3', metadata=media_metadata)
-                mc.block_until_active(timeout=20)
+                ensure_media_receiver(cast, timeout=20)
+                load_response = WaitResponse(20, "load media")
+                mc.play_media(audio_url, 'audio/mp3', metadata=media_metadata,
+                              callback_function=load_response.callback)
+                load_response.wait_response()
+                if not mc.session_active_event.wait(timeout=20):
+                    raise RuntimeError("Media session did not become active within 20s")
                 logging.info(f"Playing Athan from URL: {audio_url}")
-                mc.play()
                 break
             except Exception as e:
                 logging.error(f"Attempt {attempt + 1} to play media failed: {e}")
@@ -461,29 +657,66 @@ def cast_announcement_and_athan(audio_url, device_name, prayer_name, prayer_time
                     logging.error(f"Failed to play media after {attempt + 1} attempts.")
                     return
 
-        # Wait for playback to finish, with a hard cap so a stuck stream can't spin.
+        # Wait for playback to finish, with a hard cap so a stuck stream can't
+        # spin. Status is pushed by the speaker, so we only read it.
         logging.info("Waiting for playback to complete.")
-        state_count = 0
-        playback_timeout = 600  # 10 min hard cap
+        playback_timeout = 900  # 15 min hard cap (allows for interruptions)
         wait_start = time.time()
-        while True:
-            time.sleep(5)
-            try:
-                mc.update_status()
-            except Exception as e:
-                logging.warning(f"Could not update media status: {e}. Ending playback wait.")
-                break
-            if mc.status.player_state not in ['PLAYING', 'BUFFERING']:
-                logging.info(f"Chromecast speaker status is now {mc.status.player_state}")
-                state_count += 1
-                if state_count >= 2:
+        last_pos = 0.0
+        paused_since = None
+        gone_since = None
+        interruptions = 0
+        while time.time() - wait_start < playback_timeout:
+            time.sleep(1)
+            if not cast_is_healthy(cast):
+                continue  # pychromecast is reconnecting; the hard cap bounds this
+
+            st = mc.status
+            ours = is_our_session(cast, audio_url)
+            if ours and not (st.player_state == 'IDLE' and st.idle_reason == 'INTERRUPTED'):
+                gone_since = None
+                if st.player_state in ACTIVE_PLAYER_STATES:
+                    paused_since = None
+                    last_pos = st.adjusted_current_time or last_pos
+                elif st.player_state == 'PAUSED':
+                    # "Hey Google, pause/stop" (identical on the wire): stop.
+                    paused_since = paused_since or time.time()
+                    if time.time() - paused_since >= 10:
+                        logging.info("Athan paused/stopped at the speaker.")
+                        break
+                elif st.player_state == 'IDLE':
+                    logging.info(f"Chromecast speaker status is now IDLE ({st.idle_reason}).")
                     logging.info("Playback completed.")
                     break
-            if time.time() - wait_start > playback_timeout:
-                logging.warning("Playback wait exceeded timeout. Proceeding to disconnect.")
-                break
+                continue
 
-        if cast.status.display_name == "Default Media Receiver":
+            # Our session is gone or was replaced: confirm it for 2s so a
+            # transient status blip can't make us restart the athan.
+            gone_since = gone_since or time.time()
+            if time.time() - gone_since < 2:
+                continue
+            gone_since = None
+            interruptions += 1
+            if interruptions > 3:
+                logging.warning("Athan interrupted too many times; not resuming.")
+                break
+            logging.info(f"Athan interrupted by another cast at {last_pos:.0f}s "
+                         f"(e.g. doorbell); waiting for it to finish.")
+            if not wait_until_free(cast, audio_url, INTERRUPTION_TIMEOUT):
+                logging.warning(f"Speaker still busy after {INTERRUPTION_TIMEOUT}s; not resuming the athan.")
+                break
+            logging.info(f"Speaker free again; resuming athan at {last_pos:.0f}s.")
+            try:
+                resume_audio(cast, audio_url, media_metadata, last_pos)
+            except Exception as e:
+                logging.error(f"Could not resume the athan: {e}")
+                break
+        else:
+            logging.warning("Playback wait exceeded timeout. Proceeding to disconnect.")
+
+        # Only close the receiver if it's still ours - never someone else's
+        # (e.g. a receiver left open by another cast that interrupted us).
+        if is_our_session(cast, audio_url):
             cast.quit_app()
     except ConnectionError as ce:
         logging.error(f"{ce}. Skipping {prayer_name}.")
@@ -522,16 +755,64 @@ def get_next_prayer_time(file_path):
 def wait_until_next_prayer(prayer_time, prayer_name, month):
     """Wait until the prayer time, adjusting earlier for Ramadan Iftar."""
     if month == 'Ramadan' and prayer_name.lower() == 'maghrib':
-        wait_time = (prayer_time - timedelta(minutes=2, seconds=30)) - datetime.now()
-        logging.info(f"Waiting {wait_time} for Iftar announcement.")
+        target = prayer_time - timedelta(minutes=2, seconds=30)
+        logging.info(f"Waiting {target - datetime.now()} for Iftar announcement.")
     else:
-        wait_time = (prayer_time - timedelta(seconds=3)) - datetime.now()
-        logging.info(f"Waiting {wait_time} until {prayer_name}.")
+        target = prayer_time - timedelta(seconds=3)
+        logging.info(f"Waiting {target - datetime.now()} until {prayer_name}.")
 
-    if wait_time.total_seconds() > 0:
-        time.sleep(wait_time.total_seconds())
-    else:
+    if target <= datetime.now():
         logging.warning(f"Prayer time for {prayer_name} has already passed.")
+        return
+
+    # Sleep in short chunks, re-checking the wall clock each time. A single
+    # long time.sleep() runs on the monotonic clock, so if NTP corrects the
+    # wall clock mid-wait (e.g. right after a reboot) we'd wake at the wrong
+    # time. Re-checking also keeps prayers on time across DST changes.
+    while True:
+        remaining = (target - datetime.now()).total_seconds()
+        if remaining <= 0:
+            return
+        time.sleep(min(remaining, SLEEP_CHUNK_SECONDS))
+
+
+def is_clock_synchronized():
+    """Ask systemd whether the system clock is NTP-synchronized."""
+    try:
+        out = subprocess.run(
+            ['timedatectl', 'show', '--property=NTPSynchronized', '--value'],
+            capture_output=True, text=True, timeout=10,
+        ).stdout.strip()
+        return out == 'yes'
+    except Exception as e:
+        logging.warning(f"Could not query clock sync status: {e}")
+        return None
+
+
+def wait_for_clock_sync(max_wait):
+    """At startup, wait (bounded) for NTP sync before scheduling anything.
+
+    After a reboot the Pi's clock can be off until NTP catches up, and picking
+    the "next prayer" from a wrong clock schedules the wrong one. Bounded so an
+    internet outage doesn't stop the athan entirely - we proceed on the local
+    clock and the chunked sleep picks up any later correction.
+    """
+    status = is_clock_synchronized()
+    if status is not False:
+        if status:
+            logging.info("System clock is NTP-synchronized.")
+        return
+    logging.info(f"System clock not yet synchronized; waiting up to {max_wait}s for NTP...")
+    deadline = time.monotonic() + max_wait
+    while time.monotonic() < deadline:
+        time.sleep(5)
+        if is_clock_synchronized():
+            logging.info(f"System clock synchronized. Current time: {datetime.now()}")
+            return
+    logging.warning(f"Clock still not synchronized after {max_wait}s; proceeding with local time.")
+
+
+wait_for_clock_sync(current_config['CLOCK_SYNC_MAX_WAIT'])
 
 
 while True:

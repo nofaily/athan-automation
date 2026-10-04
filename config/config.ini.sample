@@ -38,3 +38,7 @@ timeout = 30
 # Skip the Athan if the speaker could only be reached this many seconds
 # after the prayer time (prevents playing a stale Athan hours late)
 max_late_seconds = 600
+
+# At startup, seconds to wait for the system clock to sync over NTP before
+# scheduling (a Raspberry Pi has no clock battery, so its time is wrong at boot)
+clock_sync_max_wait = 300
