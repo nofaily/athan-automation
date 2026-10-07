@@ -666,6 +666,8 @@ def cast_announcement_and_athan(audio_url, device_name, prayer_name, prayer_time
         paused_since = None
         gone_since = None
         interruptions = 0
+        started = False   # seen PLAYING/BUFFERING at least once
+        START_GRACE = 30  # seconds to wait for a cold receiver to start
         while time.time() - wait_start < playback_timeout:
             time.sleep(1)
             if not cast_is_healthy(cast):
@@ -676,6 +678,7 @@ def cast_announcement_and_athan(audio_url, device_name, prayer_name, prayer_time
             if ours and not (st.player_state == 'IDLE' and st.idle_reason == 'INTERRUPTED'):
                 gone_since = None
                 if st.player_state in ACTIVE_PLAYER_STATES:
+                    started = True
                     paused_since = None
                     last_pos = st.adjusted_current_time or last_pos
                 elif st.player_state == 'PAUSED':
@@ -685,8 +688,18 @@ def cast_announcement_and_athan(audio_url, device_name, prayer_name, prayer_time
                         logging.info("Athan paused/stopped at the speaker.")
                         break
                 elif st.player_state == 'IDLE':
+                    # Right after LOAD the receiver reports IDLE with no reason
+                    # until it starts buffering; don't mistake that for the end.
+                    if not started and st.idle_reason is None:
+                        if time.time() - wait_start < START_GRACE:
+                            continue
+                        logging.warning(f"Playback never started within {START_GRACE}s.")
+                        break
                     logging.info(f"Chromecast speaker status is now IDLE ({st.idle_reason}).")
-                    logging.info("Playback completed.")
+                    if st.idle_reason == 'ERROR':
+                        logging.error("Speaker reported a playback error.")
+                    else:
+                        logging.info("Playback completed.")
                     break
                 continue
 
